@@ -1,0 +1,32 @@
+{
+  "name": "bypass-vpn",
+  "version": "1.0.0",
+  "description": "Route AI service traffic (Claude, ChatGPT, Firebase) through Wi-Fi gateway to bypass VPN",
+  "bin": {
+    "bypass-vpn": "./bin/bypass-vpn.js"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "bin/",
+    "src/"
+  ],
+  "keywords": [
+    "vpn",
+    "bypass",
+    "route",
+    "ai",
+    "claude",
+    "chatgpt",
+    "firebase",
+    "networking",
+    "wifi"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ProjectAJ14/bypass-ai-vpn"
+  }
+}
