@@ -70,6 +70,10 @@ Routes are ephemeral — they reset on reboot or network change. Re-run as neede
 npm uninstall -g bypass-vpn
 ```
 
+## Credits
+
+Idea by [Sourabh Khot](https://github.com/sourabh-khot65)
+
 ## License
 
 MIT
