@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0] - 2026-04-01
+
+### Added
+- Atlassian service support (Jira, Confluence, Bitbucket, Trello) for routing through Wi-Fi gateway
+- Persistent custom domains via `--save` flag — user-defined domains are stored and reloaded automatically
+
+### Chores
+- Add Claude Code release-manager agent configuration
+
 ## [1.1.0] - 2026-03-30
 
 ### Fixed
