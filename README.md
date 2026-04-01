@@ -1,6 +1,6 @@
 # bypass-vpn
 
-Route AI service traffic (Claude, ChatGPT, Firebase, Google Auth) through your Wi-Fi gateway to bypass VPN routing.
+Route AI and work service traffic (Claude, ChatGPT, Atlassian, Firebase, Google Auth) through your Wi-Fi gateway to bypass VPN routing.
 
 Works on **macOS** and **Windows**. Zero dependencies.
 
@@ -23,7 +23,7 @@ npx bypass-vpn
 ## Usage
 
 ```bash
-# Route all AI services through Wi-Fi
+# Route all services through Wi-Fi
 sudo bypass-vpn
 
 # Route specific services only
@@ -39,6 +39,23 @@ sudo bypass-vpn --dry-run
 bypass-vpn --list
 ```
 
+### Custom Domains
+
+Save your own domains (e.g., your company's Jira instance) so they're automatically routed on every run:
+
+```bash
+# One-time setup
+bypass-vpn --add-domain mycompany.atlassian.net
+
+# Now just run normally — saved domains are included automatically
+sudo bypass-vpn
+
+# Remove a saved domain
+bypass-vpn --remove-domain mycompany.atlassian.net
+```
+
+Custom domains are persisted in `~/.bypass-vpn.json`.
+
 ## Supported Services
 
 | Service | Domains |
@@ -47,6 +64,7 @@ bypass-vpn --list
 | ChatGPT | chatgpt.com, chat.openai.com, api.openai.com, + 5 more |
 | Firebase | firestore.googleapis.com, securetoken.googleapis.com, + 3 more |
 | Google Auth | accounts.google.com, oauth2.googleapis.com, + 2 more |
+| Atlassian | api.atlassian.com, auth.atlassian.com, id.atlassian.com |
 
 Run `bypass-vpn --list` for the full domain list.
 

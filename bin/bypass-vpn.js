@@ -6,6 +6,7 @@ const { detect } = require('../src/gateway');
 const { resolveAll } = require('../src/resolver');
 const { addRoute, removeRoute } = require('../src/router');
 const services = require('../src/services');
+const { loadConfig, addDomain, removeDomain } = require('../src/config');
 const { version } = require('../package.json');
 
 // ── Arg parsing ────────────────────────────────────────────────
@@ -18,11 +19,19 @@ const flags = {
   dryRun: args.includes('--dry-run'),
   list: args.includes('--list'),
   services: [],
+  addDomain: null,
+  removeDomain: null,
 };
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--service' && args[i + 1]) {
     flags.services.push(args[i + 1].toLowerCase());
+    i++;
+  } else if (args[i] === '--add-domain' && args[i + 1]) {
+    flags.addDomain = args[i + 1];
+    i++;
+  } else if (args[i] === '--remove-domain' && args[i + 1]) {
+    flags.removeDomain = args[i + 1];
     i++;
   }
 }
@@ -41,6 +50,8 @@ if (flags.help) {
     bypass-vpn ${c.dim('--dry-run')}         Show commands without executing
     bypass-vpn ${c.dim('--service claude')}  Route specific service(s) only
     bypass-vpn ${c.dim('--list')}            List available services
+    bypass-vpn ${c.dim('--add-domain')} h    Save a custom domain for routing
+    bypass-vpn ${c.dim('--remove-domain')} h Remove a saved custom domain
 
   ${c.bold('Flags:')}
     -h, --help              Show this help
@@ -49,12 +60,16 @@ if (flags.help) {
         --dry-run           Print route commands without executing
         --service <name>    Route only specified service (repeatable)
         --list              List services and their domains
+        --add-domain <host> Save a custom domain (persisted in ~/.bypass-vpn.json)
+        --remove-domain <h> Remove a saved custom domain
 
-  ${c.bold('Services:')} claude, chatgpt, firebase, googleauth
+  ${c.bold('Services:')} claude, chatgpt, firebase, googleauth, atlassian
 
   ${c.bold('Examples:')}
     sudo npx bypass-vpn
     sudo bypass-vpn --service claude --service chatgpt
+    bypass-vpn --add-domain mycompany.atlassian.net
+    sudo bypass-vpn
     sudo bypass-vpn --remove
 `);
   process.exit(0);
@@ -67,6 +82,27 @@ if (flags.version) {
   process.exit(0);
 }
 
+// ── Add / Remove domain ───────────────────────────────────────
+
+const DOMAIN_RE = /^[a-zA-Z0-9.-]+$/;
+
+if (flags.addDomain) {
+  if (!DOMAIN_RE.test(flags.addDomain)) {
+    console.error(c.red(`  Invalid domain: ${flags.addDomain}`));
+    process.exit(1);
+  }
+  addDomain(flags.addDomain);
+  console.log(`  ${c.green('Saved:')} ${flags.addDomain}`);
+  console.log(`  ${c.dim('This domain will be routed on every run.')}`);
+  process.exit(0);
+}
+
+if (flags.removeDomain) {
+  removeDomain(flags.removeDomain);
+  console.log(`  ${c.green('Removed:')} ${flags.removeDomain}`);
+  process.exit(0);
+}
+
 // ── List ───────────────────────────────────────────────────────
 
 if (flags.list) {
@@ -74,6 +110,14 @@ if (flags.list) {
   for (const [key, svc] of Object.entries(services)) {
     console.log(`  ${c.bold(svc.name)} ${c.dim(`(--service ${key})`)}`);
     for (const d of svc.domains) {
+      console.log(`    ${c.dim('-')} ${d}`);
+    }
+    console.log('');
+  }
+  const config = loadConfig();
+  if (config.domains.length > 0) {
+    console.log(`  ${c.bold('Custom Domains')} ${c.dim('(saved via --add-domain)')}`);
+    for (const d of config.domains) {
       console.log(`    ${c.dim('-')} ${d}`);
     }
     console.log('');
@@ -114,7 +158,16 @@ async function main() {
       selectedServices[key] = services[key];
     }
   } else {
-    selectedServices = services;
+    selectedServices = { ...services };
+  }
+
+  // Inject saved custom domains
+  const config = loadConfig();
+  if (config.domains.length > 0) {
+    selectedServices.custom = {
+      name: 'Custom Domains',
+      domains: config.domains,
+    };
   }
 
   // Process each service

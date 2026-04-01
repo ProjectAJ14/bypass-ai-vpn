@@ -35,4 +35,12 @@ module.exports = {
       'iamcredentials.googleapis.com',
     ],
   },
+  atlassian: {
+    name: 'Atlassian',
+    domains: [
+      'api.atlassian.com',
+      'auth.atlassian.com',
+      'id.atlassian.com',
+    ],
+  },
 };
