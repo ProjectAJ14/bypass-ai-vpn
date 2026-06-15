@@ -28,8 +28,10 @@ const flags = {
   removeDomain: null,
 };
 
-// Animation speed: 0 = instant final frames, <1 faster, >1 slower.
-const speed = flags.noAnim ? 0 : flags.fast ? 0.3 : flags.slow ? 1.6 : 1;
+// Animation runs to a total time budget (ms); the renderer auto-scales every
+// beat to fit, so duration is bounded no matter how many hosts there are.
+const speed = flags.noAnim ? 0 : 1;
+const budgetMs = flags.fast ? 600 : flags.slow ? 2400 : 1300;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--service' && args[i + 1]) {
@@ -221,6 +223,7 @@ async function main() {
     { version, gateway, services: dataServices },
     {
       speed,
+      budgetMs,
       dryRun: flags.dryRun,
       mode: flags.remove ? 'remove' : 'add',
       banner: !flags.noBanner,
