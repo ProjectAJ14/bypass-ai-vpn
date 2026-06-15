@@ -42,7 +42,7 @@ function addRoute(ip, gateway, { dryRun = false } = {}) {
   }
 }
 
-function removeRoute(ip) {
+function removeRoute(ip, { dryRun = false } = {}) {
   validateIp(ip);
 
   const platform = getPlatform();
@@ -52,6 +52,10 @@ function removeRoute(ip) {
     cmd = `route -n delete -host ${ip}`;
   } else {
     cmd = `route delete ${ip}`;
+  }
+
+  if (dryRun) {
+    return { success: true, ip, cmd };
   }
 
   try {

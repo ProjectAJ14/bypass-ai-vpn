@@ -199,26 +199,25 @@ async function main() {
 
       let hostFailed = false;
       for (const ip of newIps) {
-        if (flags.remove) {
-          const result = removeRoute(ip);
-          if (!result.success) hostFailed = true;
-        } else {
-          const result = addRoute(ip, gateway, { dryRun: flags.dryRun });
-          if (flags.dryRun) {
-            console.log(`    ${c.dim('$')} ${c.dim(result.cmd)}`);
-          }
-          if (!result.success) hostFailed = true;
+        const result = flags.remove
+          ? removeRoute(ip, { dryRun: flags.dryRun })
+          : addRoute(ip, gateway, { dryRun: flags.dryRun });
+        if (flags.dryRun) {
+          console.log(`    ${c.dim('$')} ${c.dim(result.cmd)}`);
         }
+        if (!result.success) hostFailed = true;
         allIps.add(ip);
       }
 
       if (!flags.dryRun) {
-        const action = flags.remove ? 'removed' : 'routed';
         const ipStr = newIps.join(', ');
         const dupeNote = dupeCount > 0 ? c.dim(` (+${dupeCount} dupes)`) : '';
         if (hostFailed) {
           console.log(`    ${c.red('x')}  ${domain} — failed`);
           totalFailed++;
+        } else if (flags.remove) {
+          console.log(`    ${c.green('OK')} ${c.dim('removed')} ${domain} ${c.dim(`(${ipStr})`)}${dupeNote}`);
+          totalRouted++;
         } else {
           console.log(`    ${c.green('OK')} ${domain} ${c.dim(`-> ${ipStr}`)}${dupeNote}`);
           totalRouted++;
@@ -236,9 +235,10 @@ async function main() {
       console.log('');
     }
   } else {
+    const verb = flags.remove ? 'removed' : 'routed';
     console.log('');
     console.log(`  ${c.cyan(c.bold('Dry run complete.'))} No routes were modified.`);
-    console.log(`  ${c.dim(`${totalRouted} domain(s) would be routed, ${totalSkipped} skipped.`)}`);
+    console.log(`  ${c.dim(`${totalRouted} domain(s) would be ${verb}, ${totalSkipped} skipped.`)}`);
     console.log('');
   }
 }
