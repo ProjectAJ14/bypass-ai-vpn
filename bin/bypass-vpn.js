@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-const { showBanner, showResult, c, Spinner } = require('../src/ui');
+const { render } = require('../src/ui');
+const { c, ansi } = require('../src/theme');
 const { ensureAdmin } = require('../src/platform');
 const { detect } = require('../src/gateway');
 const { resolveAll } = require('../src/resolver');
@@ -18,10 +19,17 @@ const flags = {
   remove: args.includes('--remove') || args.includes('-r'),
   dryRun: args.includes('--dry-run'),
   list: args.includes('--list'),
+  fast: args.includes('--fast'),
+  slow: args.includes('--slow'),
+  noAnim: args.includes('--no-anim'),
+  noBanner: args.includes('--no-banner'),
   services: [],
   addDomain: null,
   removeDomain: null,
 };
+
+// Animation speed: 0 = instant final frames, <1 faster, >1 slower.
+const speed = flags.noAnim ? 0 : flags.fast ? 0.3 : flags.slow ? 1.6 : 1;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--service' && args[i + 1]) {
@@ -62,6 +70,10 @@ if (flags.help) {
         --list              List services and their domains
         --add-domain <host> Save a custom domain (persisted in ~/.bypass-vpn.json)
         --remove-domain <h> Remove a saved custom domain
+        --fast              Faster animation
+        --slow              Slower, more cinematic animation
+        --no-anim           Skip animation, print final frames instantly
+        --no-banner         Skip the ASCII banner
 
   ${c.bold('Services:')} claude, chatgpt, firebase, googleauth, atlassian
 
@@ -128,24 +140,16 @@ if (flags.list) {
 // ── Main ───────────────────────────────────────────────────────
 
 async function main() {
-  showBanner();
-
   if (!flags.dryRun) {
     ensureAdmin();
   }
 
-  const started = Date.now();
-
-  // Detect gateway
-  const spinner = new Spinner();
-  spinner.start('Detecting Wi-Fi gateway…');
-
+  // Detect gateway (real work — bail early with a plain message if missing)
   const gateway = detect();
   if (!gateway) {
-    spinner.stop(c.red('✖'), c.red('No Wi-Fi gateway found — connect to Wi-Fi first.'));
+    process.stdout.write('\n  ' + c.red('✖ No Wi-Fi gateway found — connect to Wi-Fi first.') + '\n\n');
     process.exit(1);
   }
-  spinner.stop(c.green('✔'), `Gateway ${c.bold(gateway)}`);
 
   // Select services
   let selectedServices;
@@ -172,49 +176,25 @@ async function main() {
     };
   }
 
-  // Process each service
+  // Do the real routing work, then hand a plain data object to the renderer.
+  // Map each per-host outcome onto ok | skip | fail.
   const allIps = new Set();
-  let totalRouted = 0;
-  let totalSkipped = 0;
-  let totalFailed = 0;
-  const touchedServices = [];
-  const actioning = flags.remove ? 'Removing' : 'Routing';
-
-  if (!flags.dryRun) {
-    spinner.start(`${actioning} services…`);
-  }
+  const dataServices = [];
 
   for (const [, svc] of Object.entries(selectedServices)) {
-    if (flags.dryRun) {
-      console.log('');
-      console.log(`  ${c.bold(svc.name)} ${c.dim(`(${svc.domains.length} domain${svc.domains.length > 1 ? 's' : ''})`)}`);
-    } else {
-      spinner.update(`${c.dim('Resolving')} ${c.bold(svc.name)}…`);
-    }
-
     const { resolved, failed } = await resolveAll(svc.domains);
-    let svcRouted = 0;
+    const hosts = [];
 
     for (const domain of failed) {
-      if (flags.dryRun) {
-        console.log(`    ${c.yellow('--')} ${c.dim(domain)} ${c.dim('— no A records')}`);
-      }
-      totalSkipped++;
+      hosts.push({ host: domain, status: 'skip', note: 'no A records' });
     }
 
     for (const [domain, ips] of resolved) {
       const newIps = ips.filter((ip) => !allIps.has(ip));
 
       if (newIps.length === 0) {
-        if (flags.dryRun) {
-          console.log(`    ${c.yellow('--')} ${c.dim(domain)} ${c.dim('— IPs already routed')}`);
-        }
-        totalSkipped++;
+        hosts.push({ host: domain, status: 'skip', ips, note: 'already routed' });
         continue;
-      }
-
-      if (!flags.dryRun) {
-        spinner.update(`${actioning} ${c.bold(svc.name)} ${c.dim(`· ${domain}`)}`);
       }
 
       let hostFailed = false;
@@ -222,50 +202,34 @@ async function main() {
         const result = flags.remove
           ? removeRoute(ip, { dryRun: flags.dryRun })
           : addRoute(ip, gateway, { dryRun: flags.dryRun });
-        if (flags.dryRun) {
-          console.log(`    ${c.dim('$')} ${c.dim(result.cmd)}`);
-        }
         if (!result.success) hostFailed = true;
         allIps.add(ip);
       }
 
-      if (hostFailed) {
-        totalFailed++;
-      } else {
-        totalRouted++;
-        svcRouted++;
-      }
+      hosts.push({
+        host: domain,
+        status: hostFailed ? 'fail' : 'ok',
+        ips: newIps,
+        note: hostFailed ? 'route command failed' : undefined,
+      });
     }
 
-    if (svcRouted > 0) touchedServices.push(svc.name);
+    dataServices.push({ name: svc.name, hosts });
   }
 
-  if (flags.dryRun) {
-    const verb = flags.remove ? 'removed' : 'routed';
-    console.log('');
-    console.log(`  ${c.cyan(c.bold('Dry run complete.'))} No routes were modified.`);
-    console.log(`  ${c.dim(`${totalRouted} domain(s) would be ${verb}, ${totalSkipped} skipped.`)}`);
-    console.log('');
-    return;
-  }
-
-  spinner.stop();
-  showResult({
-    mode: flags.remove ? 'remove' : 'add',
-    routed: totalRouted,
-    skipped: totalSkipped,
-    failed: totalFailed,
-    services: touchedServices,
-    gateway,
-    elapsedMs: Date.now() - started,
-  });
-  if (!flags.remove && totalRouted > 0) {
-    console.log(`  ${c.dim('Undo anytime:')} sudo bypass-vpn --remove`);
-    console.log('');
-  }
+  await render(
+    { version, gateway, services: dataServices },
+    {
+      speed,
+      dryRun: flags.dryRun,
+      mode: flags.remove ? 'remove' : 'add',
+      banner: !flags.noBanner,
+    },
+  );
 }
 
 main().catch((err) => {
-  console.error(c.red(`  Error: ${err.message}`));
+  process.stdout.write(ansi.showCursor); // never leave the cursor hidden
+  console.error('\n  ' + c.red(`Error: ${err.message}`) + '\n');
   process.exit(1);
 });

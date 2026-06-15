@@ -37,10 +37,13 @@ bin/bypass-vpn.js  (arg parsing → orchestration → summary)
   ├─ router.js     → addRoute(), removeRoute() — execSync with IP validation
   ├─ services.js   → static domain registry (Claude, ChatGPT, Firebase, Google Auth, Atlassian)
   ├─ config.js     → loadConfig(), addDomain(), removeDomain() — persists custom domains in ~/.bypass-vpn.json
-  └─ ui.js         → colors (raw ANSI), Spinner class (live updatable), showBanner(), showResult()
+  ├─ theme.js      → look-and-feel: palette, glyphs, spinner frames, box chars, gradient, bundled ANSI Shadow font, ANSI/width helpers
+  └─ ui.js         → retro-CRT render engine: render(data, options) plays the animation (or static frames when piped/--no-anim)
 ```
 
 All cross-platform logic lives in `gateway.js` (detection) and `router.js` (route commands). Platform is checked via `process.platform` in `platform.js`.
+
+The orchestrator (`bin/bypass-vpn.js`) does all routing work first, builds a plain data object (`{ version, gateway, services: [{ name, hosts: [{ host, status: 'ok'|'skip'|'fail', ips?, note? }] }] }`), then calls `render()` — presentation is fully decoupled from routing. Re-skin the CLI by editing `theme.js` alone.
 
 ## Key Constraints
 
