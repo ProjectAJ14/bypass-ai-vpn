@@ -1,6 +1,6 @@
 # bypass-vpn
 
-Route AI and work service traffic (Claude, ChatGPT, Atlassian, Firebase, Google Auth) through your Wi-Fi gateway to bypass VPN routing.
+Route AI and work service traffic (Claude, ChatGPT, Atlassian, Wispr Flow, Firebase, Google Auth) through your Wi-Fi gateway to bypass VPN routing.
 
 Works on **macOS** and **Windows**. Zero dependencies.
 
@@ -65,6 +65,7 @@ Custom domains are persisted in `~/.bypass-vpn.json`.
 | Firebase | firestore.googleapis.com, securetoken.googleapis.com, + 3 more |
 | Google Auth | accounts.google.com, oauth2.googleapis.com, + 2 more |
 | Atlassian | api.atlassian.com, auth.atlassian.com, id.atlassian.com |
+| Wispr Flow | wisprflow.ai, api.wisprflow.ai, inference.wisprflow.com, dl.wisprflow.com |
 
 Run `bypass-vpn --list` for the full domain list.
 

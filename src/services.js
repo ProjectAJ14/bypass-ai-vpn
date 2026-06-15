@@ -43,4 +43,13 @@ module.exports = {
       'id.atlassian.com',
     ],
   },
+  wisprflow: {
+    name: 'Wispr Flow',
+    domains: [
+      'wisprflow.ai',
+      'api.wisprflow.ai',
+      'inference.wisprflow.com',
+      'dl.wisprflow.com',
+    ],
+  },
 };
