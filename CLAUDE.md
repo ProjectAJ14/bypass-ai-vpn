@@ -33,21 +33,23 @@ The CLI entry point (`bin/bypass-vpn.js`) orchestrates five modules:
 bin/bypass-vpn.js  (arg parsing → orchestration → summary)
   ├─ platform.js   → getPlatform(), ensureAdmin()
   ├─ gateway.js    → detect() — macOS: netstat/networksetup, Windows: PowerShell/ipconfig
-  ├─ resolver.js   → resolveAll() — dns.promises.resolve4() with 5s timeout
-  ├─ router.js     → addRoute(), removeRoute() — execSync with IP validation
+  ├─ resolver.js   → resolveOne()/resolveAll() — async execFile(dig/nslookup) + Node DNS fallback, ~4s timeout
+  ├─ router.js     → addRoute(), removeRoute() — async execFile with IP validation
   ├─ services.js   → static domain registry (Claude, ChatGPT, Firebase, Google Auth, Atlassian)
   ├─ config.js     → loadConfig(), addDomain(), removeDomain() — persists custom domains in ~/.bypass-vpn.json
   ├─ theme.js      → look-and-feel: palette, glyphs, spinner frames, box chars, gradient, bundled ANSI Shadow font, ANSI/width helpers
-  └─ ui.js         → retro-CRT render engine: render(data, options) plays the animation (or static frames when piped/--no-anim)
+  └─ ui.js         → live retro-CRT render engine: renderLive(data, options, work) (or static frames when piped/--no-anim)
 ```
 
 All cross-platform logic lives in `gateway.js` (detection) and `router.js` (route commands). Platform is checked via `process.platform` in `platform.js`.
 
-The orchestrator (`bin/bypass-vpn.js`) does all routing work first, builds a plain data object (`{ version, gateway, services: [{ name, hosts: [{ host, status: 'ok'|'skip'|'fail', ips?, note? }] }] }`), then calls `render()` — presentation is fully decoupled from routing. Re-skin the CLI by editing `theme.js` alone.
+The orchestrator (`bin/bypass-vpn.js`) builds a **mutable** data object (`{ version, gateway, services: [{ name, hosts: [{ host, status, ips?, note? }] }] }`) with every host `'pending'`, then calls `renderLive(data, options, work)`. `renderLive` plays the intro, starts a timer that redraws the host block, and `await`s `work()` — the `work` callback resolves + routes **all hosts concurrently** (`Promise.all` over async `execFile`), flipping each host's `status` (`pending → resolving → routing → ok|skip|fail`) as the real work lands. The live block reflects those mutations in real time, so the animation *is* the work, not a replay. Re-skin the CLI by editing `theme.js` alone.
+
+**Performance:** DNS and route commands MUST stay async (`execFile`, not `execSync`) — `execSync` blocks the event loop and serialises every lookup, which is what made startup take 20+s. All per-host work runs in parallel.
 
 ## Key Constraints
 
 - **Zero dependencies** — only Node.js built-ins (`dns`, `child_process`). Do not add npm packages.
-- **IP validation** — all IPs passed to `execSync` must match `/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/` to prevent command injection.
+- **IP validation** — all IPs must match `/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/` before use; route commands use `execFile` with an argv array (no shell string) as defense in depth.
 - **Node >= 16** — uses `dns.promises` and modern JS features.
 - Service domains are defined in `src/services.js` — this is the single source of truth for what gets routed.

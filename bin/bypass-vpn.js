@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-const { render } = require('../src/ui');
+const { renderLive } = require('../src/ui');
 const { c, ansi } = require('../src/theme');
 const { ensureAdmin } = require('../src/platform');
 const { detect } = require('../src/gateway');
-const { resolveAll } = require('../src/resolver');
+const { resolveOne } = require('../src/resolver');
 const { addRoute, removeRoute } = require('../src/router');
 const services = require('../src/services');
 const { loadConfig, addDomain, removeDomain } = require('../src/config');
@@ -28,10 +28,10 @@ const flags = {
   removeDomain: null,
 };
 
-// Animation runs to a total time budget (ms); the renderer auto-scales every
-// beat to fit, so duration is bounded no matter how many hosts there are.
+// budgetMs bounds only the fixed intro+summary "chrome" beats — the live host
+// section is real-timed and lasts exactly as long as the real parallel work.
 const speed = flags.noAnim ? 0 : 1;
-const budgetMs = flags.fast ? 600 : flags.slow ? 2400 : 1300;
+const budgetMs = flags.fast ? 500 : flags.slow ? 1600 : 850;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--service' && args[i + 1]) {
@@ -178,48 +178,64 @@ async function main() {
     };
   }
 
-  // Do the real routing work, then hand a plain data object to the renderer.
-  // Map each per-host outcome onto ok | skip | fail.
-  const allIps = new Set();
-  const dataServices = [];
+  // Build a mutable data model — every host starts 'pending'. The live renderer
+  // reflects each host's status as the real (parallel) work flips it.
+  const dataServices = Object.values(selectedServices).map((svc) => ({
+    name: svc.name,
+    hosts: svc.domains.map((domain) => ({ host: domain, status: 'pending' })),
+  }));
 
-  for (const [, svc] of Object.entries(selectedServices)) {
-    const { resolved, failed } = await resolveAll(svc.domains);
-    const hosts = [];
+  // Shared across all concurrent hosts. JS is single-threaded, so the
+  // synchronous filter+add block below is race-free — no two hosts can claim
+  // the same IP, and "already routed" stays correct.
+  const claimedIps = new Set();
 
-    for (const domain of failed) {
-      hosts.push({ host: domain, status: 'skip', note: 'no A records' });
-    }
+  // The actual routing work, run for every host CONCURRENTLY. resolveOne and
+  // addRoute/removeRoute are async (execFile), so all DNS lookups and route
+  // commands overlap instead of running one-at-a-time.
+  const work = async () => {
+    const tasks = [];
+    for (const svc of dataServices) {
+      for (const h of svc.hosts) {
+        tasks.push((async () => {
+          h.status = 'resolving';
+          const ips = await resolveOne(h.host);
+          if (!ips || ips.length === 0) {
+            h.status = 'skip';
+            h.note = 'no A records';
+            return;
+          }
 
-    for (const [domain, ips] of resolved) {
-      const newIps = ips.filter((ip) => !allIps.has(ip));
+          const newIps = ips.filter((ip) => !claimedIps.has(ip));
+          newIps.forEach((ip) => claimedIps.add(ip));
 
-      if (newIps.length === 0) {
-        hosts.push({ host: domain, status: 'skip', ips, note: 'already routed' });
-        continue;
+          if (newIps.length === 0) {
+            h.status = 'skip';
+            h.ips = ips;
+            h.note = 'already routed';
+            return;
+          }
+
+          h.ips = newIps;
+          h.status = 'routing';
+
+          let hostFailed = false;
+          for (const ip of newIps) {
+            const result = flags.remove
+              ? await removeRoute(ip, { dryRun: flags.dryRun })
+              : await addRoute(ip, gateway, { dryRun: flags.dryRun });
+            if (!result.success) hostFailed = true;
+          }
+
+          h.status = hostFailed ? 'fail' : 'ok';
+          h.note = hostFailed ? 'route command failed' : undefined;
+        })());
       }
-
-      let hostFailed = false;
-      for (const ip of newIps) {
-        const result = flags.remove
-          ? removeRoute(ip, { dryRun: flags.dryRun })
-          : addRoute(ip, gateway, { dryRun: flags.dryRun });
-        if (!result.success) hostFailed = true;
-        allIps.add(ip);
-      }
-
-      hosts.push({
-        host: domain,
-        status: hostFailed ? 'fail' : 'ok',
-        ips: newIps,
-        note: hostFailed ? 'route command failed' : undefined,
-      });
     }
+    await Promise.all(tasks);
+  };
 
-    dataServices.push({ name: svc.name, hosts });
-  }
-
-  await render(
+  await renderLive(
     { version, gateway, services: dataServices },
     {
       speed,
@@ -228,6 +244,7 @@ async function main() {
       mode: flags.remove ? 'remove' : 'add',
       banner: !flags.noBanner,
     },
+    work,
   );
 }
 

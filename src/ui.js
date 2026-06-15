@@ -1,24 +1,27 @@
-// ui.js — retro-CRT animated render engine.
+// ui.js — live retro-CRT render engine.
 //
-// Presentation only. The orchestrator does the real routing work, builds a
-// plain data object, and calls render(data, options). Nothing here touches
-// gateways, DNS, or the routing table.
+// Presentation only. The orchestrator owns a plain, MUTABLE data object and a
+// `work` callback that does the real routing. renderLive() plays the intro,
+// starts a live loop that redraws the host block on a timer, runs work()
+// (which flips each host's status as its real DNS/route work lands), then
+// prints the summary. Nothing here touches gateways, DNS, or the route table.
 //
-//   await render({
-//     version, gateway,
-//     services: [{ name, hosts: [{ host, status, ips?, note? }] }],
-//   }, { speed, dryRun, mode, banner });
+//   const totals = await renderLive(
+//     { version, gateway, services: [{ name, hosts: [{ host, status, ips?, note? }] }] },
+//     { speed, budgetMs, dryRun, mode, banner },
+//     async () => { /* mutate data.services[].hosts[].status / .ips / .note */ },
+//   );
 //
-// status ∈ 'ok' | 'skip' | 'fail'. Returns { routed, skipped, failed }.
+// host.status ∈ 'pending' | 'resolving' | 'routing' | 'ok' | 'skip' | 'fail'.
+// Returns { routed, skipped, failed }.
 
 const t = require('./theme');
 
 const out = (s) => process.stdout.write(s);
 const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
-// Base durations (ms) for each animation beat. Single source of truth — used
-// both to drive the sleeps and to estimate the total runtime up front, so the
-// two can never drift.
+// Base durations (ms) for the intro/summary beats. The middle (host) section is
+// real-timed — it lasts exactly as long as the real resolve+route work takes.
 const D = {
   powerScan: 18,
   powerBloom: 90,
@@ -28,19 +31,13 @@ const D = {
   bannerBright: 35,
   type: 8,
   gw: 90,
-  group: 40,
-  hostFrame: 55,
-  hostSettle: 20,
-  bar: 14,
   counter: 28,
 };
-const HOST_FRAMES = 5; // spinner ticks shown per host
-const GW_FRAMES = 6; // gateway sweep ticks
-const COUNTER_STEPS = 17; // count-up ticks (0..16 inclusive)
-const DEFAULT_BUDGET_MS = 1400; // hard cap on total animation time
+const GW_FRAMES = 6;
+const COUNTER_STEPS = 17;
+const LIVE_INTERVAL = 70; // ms between live redraws (spinner cadence)
 
-// Global pacing factor: every beat sleeps base * PACE_K. render() sets it so
-// the whole sequence fits the time budget no matter how many hosts there are.
+// Pacing factor for the (fixed) intro+summary beats so they fit budgetMs.
 let PACE_K = 1;
 const pace = (base) => sleep(base * PACE_K);
 
@@ -51,8 +48,9 @@ function powerOnIters(cols) {
   return Math.floor((mid - 1) / step) + 1;
 }
 
-// Sum of all base durations this run will sleep, mirroring the animation code.
-function estimateWeight(data, opts, cols) {
+// Weight of the non-work beats only (intro + summary count-up), used to scale
+// PACE_K to budgetMs. The live host section is excluded — it is real-timed.
+function estimateChromeWeight(data, opts, cols) {
   let w = 0;
   w += powerOnIters(cols) * D.powerScan + D.powerBloom + 3 * (D.flickOn + D.flickOff);
   if (opts.showBannerArt) {
@@ -61,15 +59,11 @@ function estimateWeight(data, opts, cols) {
     w += [...sub].length * D.type;
   }
   w += GW_FRAMES * D.gw;
-  for (const svc of data.services) {
-    w += D.group + svc.hosts.length * (HOST_FRAMES * D.hostFrame + D.hostSettle);
-  }
-  w += (Math.min(cols - 10, 40) + 1) * D.bar;
   w += COUNTER_STEPS * D.counter;
   return w;
 }
 
-// ── Shared formatting (used by both animated and static paths) ──
+// ── Shared formatting (used by live, static, and summary paths) ──
 
 function tally(services) {
   let routed = 0;
@@ -79,10 +73,22 @@ function tally(services) {
     for (const h of svc.hosts) {
       if (h.status === 'ok') routed++;
       else if (h.status === 'fail') failed++;
-      else skipped++;
+      else if (h.status === 'skip') skipped++;
     }
   }
   return { routed, skipped, failed };
+}
+
+function liveCounts(services) {
+  let total = 0;
+  let done = 0;
+  for (const svc of services) {
+    for (const h of svc.hosts) {
+      total++;
+      if (h.status === 'ok' || h.status === 'skip' || h.status === 'fail') done++;
+    }
+  }
+  return { total, done };
 }
 
 function computeHostCol(services, cols) {
@@ -90,10 +96,10 @@ function computeHostCol(services, cols) {
   for (const svc of services) {
     for (const h of svc.hosts) max = Math.max(max, t.visibleWidth(h.host));
   }
-  return Math.min(max, Math.max(12, cols - 24));
+  return Math.min(max, Math.max(12, cols - 28));
 }
 
-// A resolved host line: aligned name + status glyph + ip/note.
+// A settled host line: aligned name + status glyph + ip/note.
 function formatHost(h, hostCol) {
   const name = t.padEndVisible(h.host, hostCol);
   if (h.status === 'skip') {
@@ -106,6 +112,25 @@ function formatHost(h, hostCol) {
   const first = ips[0] || '—';
   const extra = ips.length > 1 ? t.dim(` +${ips.length - 1}`) : '';
   return `${t.paint.green(t.glyph.routed)} ${t.paint.green(name)}   ${t.dim(t.glyph.arrow)} ${t.paint.agedGreen(first)}${extra}`;
+}
+
+// An in-flight host line — animated spinner reflecting real work in progress.
+function liveHostLine(h, frame, hostCol, mode) {
+  const name = t.padEndVisible(h.host, hostCol);
+  const spin = t.spinners.host;
+  if (h.status === 'resolving') {
+    const f = spin[frame % spin.length];
+    return `${t.paint.amber(f)} ${t.dim(name)}   ${t.dim('resolving …')}`;
+  }
+  if (h.status === 'routing') {
+    const f = spin[frame % spin.length];
+    const verb = mode === 'remove' ? 'removing route …' : 'adding route …';
+    return `${t.paint.green(f)} ${name}   ${t.dim(verb)}`;
+  }
+  if (h.status === 'pending') {
+    return `${t.dim('·')} ${t.dim(name)}   ${t.dim('queued')}`;
+  }
+  return formatHost(h, hostCol);
 }
 
 function groupHeaderStr(svc, cols) {
@@ -145,13 +170,12 @@ function bannerArtWidthFits(cols) {
   return { art, width: t.visibleWidth(art[0]), fits: t.visibleWidth(art[0]) <= cols - 4 };
 }
 
-// ── Animated path ──────────────────────────────────────────────
+// ── Intro animation (short, real sleeps, bounded by budgetMs) ──
 
-async function powerOn(speed, cols) {
+async function powerOn(cols) {
   const width = Math.min(cols - 2, 60);
   const mid = Math.floor(width / 2);
   out('\n');
-  // Hot scan-line snaps open from the centre.
   const step = Math.max(1, Math.floor(mid / 8));
   for (let half = 1; half <= mid; half += step) {
     const len = Math.min(width, half * 2);
@@ -159,10 +183,8 @@ async function powerOn(speed, cols) {
     out(t.ansi.cr + t.ansi.clearLine + '  ' + line);
     await pace(D.powerScan);
   }
-  // Bloom flash.
   out(t.ansi.cr + t.ansi.clearLine + '  ' + t.bold(t.paint.green(t.glyph.rule.repeat(width))));
   await pace(D.powerBloom);
-  // Unstable warm-up flickers.
   const dots = Array.from({ length: width }, (_, x) => (x % 2 ? ' ' : '·')).join('');
   for (let i = 0; i < 3; i++) {
     out(t.ansi.cr + t.ansi.clearLine + '  ' + t.paint.faint(dots));
@@ -173,21 +195,20 @@ async function powerOn(speed, cols) {
   out(t.ansi.cr + t.ansi.clearLine);
 }
 
-async function banner(version, speed, cols, dryRun) {
+async function banner(version, cols, dryRun) {
   const { art, width, fits } = bannerArtWidthFits(cols);
   if (!fits) {
     out('  ' + t.bold(t.gradientByColumn('bypass-vpn', 10, t.bannerStops)) + '\n');
   } else {
     out('  ' + t.paint.agedGreen(t.glyph.scanTop.repeat(width)) + '\n');
     for (const line of art) {
-      out('  ' + t.paint.faint(line) + '\n'); // faint first…
+      out('  ' + t.paint.faint(line) + '\n');
       await pace(D.bannerLine);
-      out(t.ansi.up(1) + t.ansi.cr + t.ansi.clearLine + '  ' + t.gradientByColumn(line, width, t.bannerStops) + '\n'); // …then bright
+      out(t.ansi.up(1) + t.ansi.cr + t.ansi.clearLine + '  ' + t.gradientByColumn(line, width, t.bannerStops) + '\n');
       await pace(D.bannerBright);
     }
     out('  ' + t.paint.agedGreen(t.glyph.scanBottom.repeat(width)) + '\n');
   }
-  // Typewriter subtitle.
   const sub = `v${version}  ·  ${t.glyph.bullet} route AI traffic around your VPN`;
   out('  ');
   for (const ch of sub) {
@@ -197,7 +218,7 @@ async function banner(version, speed, cols, dryRun) {
   out((dryRun ? t.dim('  [dry run]') : '') + '\n\n');
 }
 
-async function gatewayProbe(gateway, speed) {
+async function gatewayProbe(gateway) {
   const frames = t.spinners.signal;
   for (let i = 0; i < GW_FRAMES; i++) {
     out(t.ansi.cr + t.ansi.clearLine + '  ' + t.paint.amber(frames[i % frames.length]) + ' ' + t.dim('locating default gateway') + '   ');
@@ -206,41 +227,14 @@ async function gatewayProbe(gateway, speed) {
   out(t.ansi.cr + t.ansi.clearLine + '  ' + gatewayLine(gateway) + '\n\n');
 }
 
-async function hostLine(h, speed, hostCol) {
-  const frames = t.spinners.host;
-  for (let i = 0; i < HOST_FRAMES; i++) {
-    out(t.ansi.cr + t.ansi.clearLine + '    ' + t.paint.green(frames[i % frames.length]) + ' ' + t.dim(`resolving ${h.host} …`));
-    await pace(D.hostFrame);
-  }
-  out(t.ansi.cr + t.ansi.clearLine + '    ' + formatHost(h, hostCol) + '\n');
-  await pace(D.hostSettle);
-}
-
-async function tunnel(routed, speed, cols) {
-  out('\n');
-  const label = 'ESTABLISHING SECURE ROUTES';
-  const width = Math.min(cols - 10, 40);
-  for (let i = 0; i <= width; i++) {
-    const pct = Math.round((i / width) * 100);
-    const headOn = i > 0 && i < width;
-    const fullCount = headOn ? i - 1 : i;
-    const emptyCount = Math.max(0, width - fullCount - (headOn ? 1 : 0));
-    const rawBar = t.bar.full.repeat(fullCount) + (headOn ? t.bar.head : '') + t.bar.empty.repeat(emptyCount);
-    out(t.ansi.cr + t.ansi.clearLine + '  ' + t.dim(label) + ' ' + t.paint.green(rawBar) + ' ' + t.bold(`${String(pct).padStart(3)}%`));
-    await pace(D.bar);
-  }
-  out(t.ansi.cr + t.ansi.clearLine + '  ' + t.paint.green('▸') + ' ' + t.bold(`${routed} routes live`) + '\n');
-}
-
 async function summaryBox(totals, opts) {
-  const { mode, dryRun, speed, cols } = opts;
+  const { mode, dryRun, cols } = opts;
   const inner = Math.min(cols - 4, 44);
   const v = t.paint.agedGreen(t.box.v);
   out('\n');
   out('  ' + t.paint.agedGreen(t.box.tl + t.box.h.repeat(inner) + t.box.tr) + '\n');
   const title = t.gradientByColumn(t.centerVisible('R E S U L T S', inner), inner, t.bannerStops);
   out('  ' + v + title + v + '\n');
-  // Counters count up in place on a single line.
   const steps = COUNTER_STEPS - 1;
   for (let i = 0; i <= steps; i++) {
     const k = i / steps;
@@ -257,7 +251,45 @@ async function summaryBox(totals, opts) {
   out('\n');
 }
 
-// ── Static path (non-TTY / --no-anim) ──────────────────────────
+// ── Live host block (redrawn in place; reflects real work) ──────
+
+function makeLiveBlock(data, opts) {
+  const { cols, mode } = opts;
+  const hostCol = computeHostCol(data.services, cols);
+  let frame = 0;
+  let lastLines = 0;
+
+  function blockLines() {
+    const lines = [];
+    for (const svc of data.services) {
+      lines.push('  ' + groupHeaderStr(svc, cols));
+      for (const h of svc.hosts) lines.push('    ' + liveHostLine(h, frame, hostCol, mode));
+    }
+    const { total, done } = liveCounts(data.services);
+    const label = done < total
+      ? `${t.dim('working …')} ${t.paint.green(`${done}`)}${t.dim(`/${total}`)}`
+      : `${t.paint.green(t.glyph.arrow)} ${t.bold(`${tally(data.services).routed} routes live`)}`;
+    lines.push('');
+    lines.push('  ' + label);
+    return lines;
+  }
+
+  function draw() {
+    const lines = blockLines();
+    let s = '';
+    if (lastLines > 0) s += t.ansi.up(lastLines);
+    for (const ln of lines) s += t.ansi.cr + t.ansi.clearLine + ln + '\n';
+    out(s);
+    lastLines = lines.length;
+  }
+
+  return {
+    draw,
+    advance() { frame++; },
+  };
+}
+
+// ── Static path (non-TTY / --no-anim): work runs, then one dump ──
 
 function renderStatic(data, opts) {
   const { mode, dryRun, showBannerArt, cols, totals } = opts;
@@ -283,7 +315,7 @@ function renderStatic(data, opts) {
     for (const h of svc.hosts) out('    ' + formatHost(h, hostCol) + '\n');
   }
 
-  out('\n  ' + t.paint.green('▸') + ' ' + t.bold(`${totals.routed} routes live`) + '\n');
+  out('\n  ' + t.paint.green(t.glyph.arrow) + ' ' + t.bold(`${totals.routed} routes live`) + '\n');
 
   const inner = Math.min(cols - 4, 44);
   const v = t.paint.agedGreen(t.box.v);
@@ -299,43 +331,50 @@ function renderStatic(data, opts) {
 
 // ── Orchestrator ───────────────────────────────────────────────
 
-async function render(data, options = {}) {
+async function renderLive(data, options = {}, work = async () => {}) {
   const speed = options.speed == null ? 1 : options.speed;
   const animate = (process.stdout.isTTY || options._forceAnimate) && speed > 0;
   const mode = options.mode || 'add';
   const dryRun = !!options.dryRun;
   const showBannerArt = options.banner !== false;
   const cols = process.stdout.columns || 80;
-  const totals = tally(data.services);
 
+  // Non-animated (piped / --no-anim): do the real work, then dump once.
   if (!animate) {
+    await work();
+    const totals = tally(data.services);
     renderStatic(data, { mode, dryRun, showBannerArt, cols, totals });
     return totals;
   }
 
-  // Auto-scale every beat so the whole animation fits the time budget,
-  // however many hosts there are. Cap at 1× so small runs stay snappy.
-  const budgetMs = options.budgetMs == null ? DEFAULT_BUDGET_MS : options.budgetMs;
-  const weight = estimateWeight(data, { showBannerArt, version: data.version }, cols);
+  const budgetMs = options.budgetMs == null ? 1000 : options.budgetMs;
+  const weight = estimateChromeWeight(data, { showBannerArt, version: data.version }, cols);
   PACE_K = weight > 0 ? Math.min(1, budgetMs / weight) : 0;
 
-  const hostCol = computeHostCol(data.services, cols);
   out(t.ansi.hideCursor);
+  let timer = null;
   try {
-    await powerOn(speed, cols);
-    if (showBannerArt) await banner(data.version, speed, cols, dryRun);
-    await gatewayProbe(data.gateway, speed);
-    for (const svc of data.services) {
-      out('  ' + groupHeaderStr(svc, cols) + '\n');
-      await pace(D.group);
-      for (const h of svc.hosts) await hostLine(h, speed, hostCol);
-    }
-    await tunnel(totals.routed, speed, cols);
-    await summaryBox(totals, { mode, dryRun, speed, cols });
+    await powerOn(cols);
+    if (showBannerArt) await banner(data.version, cols, dryRun);
+    await gatewayProbe(data.gateway);
+
+    // Start the live block: spinners animate on a timer while real work runs.
+    const block = makeLiveBlock(data, { cols, mode });
+    block.draw();
+    timer = setInterval(() => { block.advance(); block.draw(); }, LIVE_INTERVAL);
+
+    await work(); // mutates each host's status/ips/note as real work lands
+
+    clearInterval(timer);
+    timer = null;
+    block.draw(); // final settled frame
+
+    await summaryBox(tally(data.services), { mode, dryRun, cols });
   } finally {
-    out(t.ansi.showCursor); // never leave the cursor hidden
+    if (timer) clearInterval(timer);
+    out(t.ansi.showCursor);
   }
-  return totals;
+  return tally(data.services);
 }
 
-module.exports = { render };
+module.exports = { renderLive };
