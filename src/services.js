@@ -52,4 +52,10 @@ module.exports = {
       'dl.wisprflow.com',
     ],
   },
+  npm: {
+    name: 'npm',
+    domains: [
+      'registry.npmjs.org',
+    ],
+  },
 };
