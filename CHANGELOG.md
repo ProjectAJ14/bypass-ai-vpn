@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1] - 2026-06-15
+
+First successful npm publish of the 1.3.x line. Carries the same functionality as 1.3.0 (Wispr Flow service support and the Windows `nslookup` DNS fix), which never reached npm because its release build authenticated with a dead `NPM_TOKEN`.
+
+### Fixed
+- CI publishing now uses npm OIDC trusted publishing instead of a long-lived `NPM_TOKEN`, so releases authenticate correctly and publish to npm. The 1.3.0 release event ran the pre-fix workflow from its tagged commit; this 1.3.1 tag includes the OIDC workflow, making it the first 1.3.x version actually published to npm
+
 ## [1.3.0] - 2026-06-15
 
 ### Added
