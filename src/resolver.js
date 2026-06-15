@@ -3,10 +3,18 @@ const dns = require('dns');
 const dnsPromises = dns.promises;
 
 /**
- * Resolve a domain using `dig` — works outside VPN tunnel.
- * Falls back to Node.js DNS if `dig` is unavailable.
+ * Resolve a domain using `dig` (macOS/Linux) or `nslookup` (Windows).
+ * These bypass the VPN tunnel's DNS interception.
+ * Falls back to Node.js DNS if neither is available.
  */
 function resolveDomain(domain) {
+  if (process.platform === 'win32') {
+    return resolveDomainWindows(domain);
+  }
+  return resolveDomainUnix(domain);
+}
+
+function resolveDomainUnix(domain) {
   try {
     const output = execSync(`dig +short +time=3 "${domain}"`, {
       timeout: 5000,
@@ -19,6 +27,44 @@ function resolveDomain(domain) {
     if (ips.length > 0) return ips;
   } catch {
     // dig not available or failed — fall through to Node DNS
+  }
+  return null;
+}
+
+function resolveDomainWindows(domain) {
+  let output;
+  try {
+    output = execSync(`nslookup "${domain}"`, {
+      timeout: 5000,
+      encoding: 'utf8',
+    });
+  } catch (err) {
+    // nslookup often exits non-zero for non-authoritative answers;
+    // the output is still valid, so parse it if available
+    if (err.stdout) {
+      output = err.stdout;
+    } else {
+      return null;
+    }
+  }
+  try {
+    const lines = output.split('\n').map((line) => line.trim());
+    // Skip past the first "Address:" line (the DNS server itself)
+    let pastServer = false;
+    const ips = [];
+    for (const line of lines) {
+      if (!pastServer) {
+        if (/^Address[es]*:/i.test(line)) pastServer = true;
+        continue;
+      }
+      const match = line.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+      if (match) {
+        ips.push(match[1]);
+      }
+    }
+    if (ips.length > 0) return ips;
+  } catch {
+    // parse failed — fall through to Node DNS
   }
   return null;
 }
