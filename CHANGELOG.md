@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.2] - 2026-06-15
+
+### Added
+- npm service support — routes `registry.npmjs.org` through the Wi-Fi gateway so `npm install` works while connected to a VPN that intercepts the tunnel. Both package metadata and tarballs are served from this host
+
 ## [1.3.1] - 2026-06-15
 
 First successful npm publish of the 1.3.x line. Carries the same functionality as 1.3.0 (Wispr Flow service support and the Windows `nslookup` DNS fix), which never reached npm because its release build authenticated with a dead `NPM_TOKEN`.
