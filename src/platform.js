@@ -1,5 +1,5 @@
 const { execSync } = require('child_process');
-const { c } = require('./ui');
+const { c } = require('./theme');
 
 function getPlatform() {
   const p = process.platform;
