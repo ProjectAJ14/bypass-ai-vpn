@@ -37,7 +37,7 @@ bin/bypass-vpn.js  (arg parsing → orchestration → summary)
   ├─ router.js     → addRoute(), removeRoute() — execSync with IP validation
   ├─ services.js   → static domain registry (Claude, ChatGPT, Firebase, Google Auth, Atlassian)
   ├─ config.js     → loadConfig(), addDomain(), removeDomain() — persists custom domains in ~/.bypass-vpn.json
-  └─ ui.js         → colors (raw ANSI), Spinner class, showBanner(), showSummary()
+  └─ ui.js         → colors (raw ANSI), Spinner class (live updatable), showBanner(), showResult()
 ```
 
 All cross-platform logic lives in `gateway.js` (detection) and `router.js` (route commands). Platform is checked via `process.platform` in `platform.js`.

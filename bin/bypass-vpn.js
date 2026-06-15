@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { showBanner, showSummary, c, Spinner } = require('../src/ui');
+const { showBanner, showResult, c, Spinner } = require('../src/ui');
 const { ensureAdmin } = require('../src/platform');
 const { detect } = require('../src/gateway');
 const { resolveAll } = require('../src/resolver');
@@ -134,16 +134,18 @@ async function main() {
     ensureAdmin();
   }
 
+  const started = Date.now();
+
   // Detect gateway
   const spinner = new Spinner();
-  spinner.start('Detecting Wi-Fi gateway...');
+  spinner.start('Detecting Wi-Fi gateway…');
 
   const gateway = detect();
   if (!gateway) {
-    spinner.stop(c.red('x'), c.red('No Wi-Fi gateway found — connect to Wi-Fi first!'));
+    spinner.stop(c.red('✖'), c.red('No Wi-Fi gateway found — connect to Wi-Fi first.'));
     process.exit(1);
   }
-  spinner.stop(c.green('OK'), `Gateway: ${c.bold(gateway)}`);
+  spinner.stop(c.green('✔'), `Gateway ${c.bold(gateway)}`);
 
   // Select services
   let selectedServices;
@@ -175,26 +177,44 @@ async function main() {
   let totalRouted = 0;
   let totalSkipped = 0;
   let totalFailed = 0;
+  const touchedServices = [];
+  const actioning = flags.remove ? 'Removing' : 'Routing';
+
+  if (!flags.dryRun) {
+    spinner.start(`${actioning} services…`);
+  }
 
   for (const [, svc] of Object.entries(selectedServices)) {
-    console.log('');
-    console.log(`  ${c.bold(svc.name)} ${c.dim(`(${svc.domains.length} domain${svc.domains.length > 1 ? 's' : ''})`)}`);
+    if (flags.dryRun) {
+      console.log('');
+      console.log(`  ${c.bold(svc.name)} ${c.dim(`(${svc.domains.length} domain${svc.domains.length > 1 ? 's' : ''})`)}`);
+    } else {
+      spinner.update(`${c.dim('Resolving')} ${c.bold(svc.name)}…`);
+    }
 
     const { resolved, failed } = await resolveAll(svc.domains);
+    let svcRouted = 0;
 
     for (const domain of failed) {
-      console.log(`    ${c.yellow('--')} ${c.dim(domain)} ${c.dim('— no A records')}`);
+      if (flags.dryRun) {
+        console.log(`    ${c.yellow('--')} ${c.dim(domain)} ${c.dim('— no A records')}`);
+      }
       totalSkipped++;
     }
 
     for (const [domain, ips] of resolved) {
       const newIps = ips.filter((ip) => !allIps.has(ip));
-      const dupeCount = ips.length - newIps.length;
 
       if (newIps.length === 0) {
-        console.log(`    ${c.yellow('--')} ${c.dim(domain)} ${c.dim('— IPs already routed')}`);
+        if (flags.dryRun) {
+          console.log(`    ${c.yellow('--')} ${c.dim(domain)} ${c.dim('— IPs already routed')}`);
+        }
         totalSkipped++;
         continue;
+      }
+
+      if (!flags.dryRun) {
+        spinner.update(`${actioning} ${c.bold(svc.name)} ${c.dim(`· ${domain}`)}`);
       }
 
       let hostFailed = false;
@@ -209,36 +229,38 @@ async function main() {
         allIps.add(ip);
       }
 
-      if (!flags.dryRun) {
-        const ipStr = newIps.join(', ');
-        const dupeNote = dupeCount > 0 ? c.dim(` (+${dupeCount} dupes)`) : '';
-        if (hostFailed) {
-          console.log(`    ${c.red('x')}  ${domain} — failed`);
-          totalFailed++;
-        } else if (flags.remove) {
-          console.log(`    ${c.green('OK')} ${c.dim('removed')} ${domain} ${c.dim(`(${ipStr})`)}${dupeNote}`);
-          totalRouted++;
-        } else {
-          console.log(`    ${c.green('OK')} ${domain} ${c.dim(`-> ${ipStr}`)}${dupeNote}`);
-          totalRouted++;
-        }
+      if (hostFailed) {
+        totalFailed++;
       } else {
         totalRouted++;
+        svcRouted++;
       }
     }
+
+    if (svcRouted > 0) touchedServices.push(svc.name);
   }
 
-  if (!flags.dryRun) {
-    showSummary({ routed: totalRouted, skipped: totalSkipped, failed: totalFailed });
-    if (!flags.remove) {
-      console.log(`  ${c.dim('To remove these routes later:')} sudo bypass-vpn --remove`);
-      console.log('');
-    }
-  } else {
+  if (flags.dryRun) {
     const verb = flags.remove ? 'removed' : 'routed';
     console.log('');
     console.log(`  ${c.cyan(c.bold('Dry run complete.'))} No routes were modified.`);
     console.log(`  ${c.dim(`${totalRouted} domain(s) would be ${verb}, ${totalSkipped} skipped.`)}`);
+    console.log('');
+    return;
+  }
+
+  spinner.stop();
+  showResult({
+    mode: flags.remove ? 'remove' : 'add',
+    routed: totalRouted,
+    skipped: totalSkipped,
+    failed: totalFailed,
+    services: touchedServices,
+    gateway,
+    elapsedMs: Date.now() - started,
+  });
+  if (!flags.remove && totalRouted > 0) {
+    console.log(`  ${c.dim('Undo anytime:')} sudo bypass-vpn --remove`);
     console.log('');
   }
 }
