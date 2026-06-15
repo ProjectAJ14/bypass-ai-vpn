@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0] - 2026-06-16
+
+### Changed
+- DNS resolution and route commands now run concurrently. `resolver.js` and `router.js` switched from blocking `execSync('dig')` to async `execFile` driven by `Promise.all`, so all lookups and routes happen in parallel instead of serially blocking the event loop. A full run (~33 domains across 9 services) dropped from 20+ seconds to roughly 0.9 seconds
+- Animation runtime is now capped to a total time budget (~1.3s) so output never drags on slower terminals
+
+### Added
+- Live render engine — the UI now animates the actual work as it happens. Each host shows a spinner while it really resolves and routes, then flips to its result, with a live N/total progress counter, replacing the previous post-hoc fake animation
+- Retro-CRT animated output and a modern CLI presentation with a concise summary
+
+### Fixed
+- `--dry-run` is now honored on `--remove`, and removed routes are labeled accurately
+- `platform.js` now imports colors from the theme, fixing the color references used in its output
+
 ## [1.3.2] - 2026-06-15
 
 ### Added
