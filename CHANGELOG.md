@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.1] - 2026-07-13
+
+### Fixed
+- CI publish workflow now pins `npm@11` instead of `npm@latest`. `npm@latest` advanced to 12.x, which requires Node 22+ and aborted on the Node 20 runner, so the 1.5.0 publish job failed before `npm publish` ran and 1.5.0 never reached npm. Pinning to the 11.x major keeps OIDC trusted publishing working (needs npm >= 11.5.1) on Node 20. This release carries the same functionality as 1.5.0 — the passwordless-sudo feature — and is the first version of the 1.5.x line actually published to npm
+
 ## [1.5.0] - 2026-07-13
 
 ### Added
