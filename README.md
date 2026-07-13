@@ -10,30 +10,44 @@ Works on **macOS** and **Windows**. Zero dependencies.
 npm install -g bypass-vpn
 ```
 
-Or run directly without installing:
+## Setup
+
+### macOS — run without a password (recommended)
+
+`bypass-vpn` only needs elevated privileges for one thing: the `route` command.
+Run this **once** to grant passwordless access to just that command:
 
 ```bash
-# macOS
-sudo npx bypass-vpn
-
-# Windows (run from elevated PowerShell)
-npx bypass-vpn
+bypass-vpn --install-sudoers   # asks for your password this one time
 ```
+
+After that, every run works with no password and no `sudo`. It adds a single
+scoped rule (`NOPASSWD: /sbin/route`) to `/etc/sudoers.d/bypass-vpn` — nothing
+else is granted. Undo any time with `bypass-vpn --uninstall-sudoers`.
+
+Prefer not to set that up? You can always fall back to `sudo bypass-vpn`, which
+prompts for your password each run.
+
+### Windows
+
+Run from an **elevated** Command Prompt or PowerShell (Administrator). No setup command needed.
 
 ## Usage
 
+On macOS, the examples below assume you've run `--install-sudoers`; otherwise prefix them with `sudo`. On Windows, run them from an elevated prompt.
+
 ```bash
 # Route all services through Wi-Fi
-sudo bypass-vpn
+bypass-vpn
 
 # Route specific services only
-sudo bypass-vpn --service claude --service chatgpt
+bypass-vpn --service claude --service chatgpt
 
 # Remove routes
-sudo bypass-vpn --remove
+bypass-vpn --remove
 
-# Preview without executing
-sudo bypass-vpn --dry-run
+# Preview without executing (no privileges needed)
+bypass-vpn --dry-run
 
 # List available services
 bypass-vpn --list
@@ -48,7 +62,7 @@ Save your own domains (e.g., your company's Jira instance) so they're automatica
 bypass-vpn --add-domain mycompany.atlassian.net
 
 # Now just run normally — saved domains are included automatically
-sudo bypass-vpn
+bypass-vpn
 
 # Remove a saved domain
 bypass-vpn --remove-domain mycompany.atlassian.net
@@ -82,7 +96,7 @@ Routes are ephemeral — they reset on reboot or network change. Re-run as neede
 
 - Node.js >= 16
 - macOS or Windows
-- Root/Administrator access (needed to modify routing table)
+- Privileges to modify the routing table — on macOS granted once via `--install-sudoers` (or `sudo` per run); on Windows an elevated prompt
 
 ## Uninstall
 
