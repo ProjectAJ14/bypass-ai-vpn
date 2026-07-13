@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.2] - 2026-07-13
+
+### Documentation
+- README now documents the passwordless-sudo setup — a Setup section covering the one-time macOS `--install-sudoers` (passwordless route) and `--uninstall-sudoers`, `sudo` dropped from the macOS install/usage examples, and an updated Requirements line. npm only re-renders the README on a new publish, so this release ships it to npmjs.com
+
+### Chores
+- CI: bumped `actions/checkout` and `actions/setup-node` from v4 to v5 to clear the Node 20 deprecation warning
+
 ## [1.5.1] - 2026-07-13
 
 ### Fixed
