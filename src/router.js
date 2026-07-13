@@ -6,6 +6,9 @@ const execFileP = promisify(execFile);
 
 const IP_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
+// Absolute path so it matches the NOPASSWD sudoers rule exactly (see platform.js).
+const ROUTE_BIN_DARWIN = '/sbin/route';
+
 function validateIp(ip) {
   if (!IP_REGEX.test(ip)) {
     throw new Error(`Invalid IP address: ${ip}`);
@@ -18,6 +21,19 @@ async function run(file, argv) {
   await execFileP(file, argv, { timeout: 8000 });
 }
 
+// Run the `route` command with the privileges it needs.
+//   macOS: elevate ONLY this command via passwordless sudo. `sudo -n` never
+//          prompts — if the NOPASSWD rule isn't installed it fails fast rather
+//          than hanging, and platform.js catches that at preflight.
+//   Windows: the whole process is already elevated (Administrator).
+async function runRoute(argv) {
+  if (getPlatform() === 'darwin') {
+    await run('sudo', ['-n', ROUTE_BIN_DARWIN, ...argv]);
+    return;
+  }
+  await run('route', argv);
+}
+
 async function addRoute(ip, gateway, { dryRun = false } = {}) {
   validateIp(ip);
   validateIp(gateway);
@@ -27,9 +43,9 @@ async function addRoute(ip, gateway, { dryRun = false } = {}) {
   if (platform === 'darwin') {
     const cmd = `route -n add -host ${ip} ${gateway}`;
     if (dryRun) return { success: true, ip, cmd };
-    try { await run('route', ['-n', 'delete', '-host', ip]); } catch {}
+    try { await runRoute(['-n', 'delete', '-host', ip]); } catch {}
     try {
-      await run('route', ['-n', 'add', '-host', ip, gateway]);
+      await runRoute(['-n', 'add', '-host', ip, gateway]);
       return { success: true, ip };
     } catch (err) {
       return { success: false, ip, error: err.message };
@@ -39,9 +55,9 @@ async function addRoute(ip, gateway, { dryRun = false } = {}) {
   // Windows
   const cmd = `route add ${ip} mask 255.255.255.255 ${gateway}`;
   if (dryRun) return { success: true, ip, cmd };
-  try { await run('route', ['delete', ip]); } catch {}
+  try { await runRoute(['delete', ip]); } catch {}
   try {
-    await run('route', ['add', ip, 'mask', '255.255.255.255', gateway]);
+    await runRoute(['add', ip, 'mask', '255.255.255.255', gateway]);
     return { success: true, ip };
   } catch (err) {
     return { success: false, ip, error: err.message };
@@ -62,7 +78,7 @@ async function removeRoute(ip, { dryRun = false } = {}) {
   if (dryRun) return { success: true, ip, cmd };
 
   try {
-    await run('route', argv);
+    await runRoute(argv);
     return { success: true, ip };
   } catch (err) {
     return { success: false, ip, error: err.message };

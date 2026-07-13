@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0] - 2026-07-13
+
+### Added
+- Passwordless sudo setup on macOS — the tool now runs as a normal user and elevates only the `route` command via `sudo -n /sbin/route`. New `--install-sudoers` command writes a `NOPASSWD: /sbin/route` rule to `/etc/sudoers.d/bypass-vpn` (one-time setup), and `--uninstall-sudoers` removes it, so subsequent runs never prompt for a password
+
+### Changed
+- Privilege model reworked — the old "must run as root" check (`ensureAdmin`) is replaced by `ensurePrivileges()`, which preflights that passwordless `route` works and prints setup instructions if not. Running as root (`sudo bypass-vpn`) still works via a `getuid() === 0` fast-path, so the change is backward compatible. `router.js` now wraps route calls in a `runRoute()` helper that elevates via `sudo -n` on macOS (Windows still runs elevated, unchanged)
+- Help text, examples, and the "Undo anytime" UI hint no longer reference `sudo` on macOS
+
+### Documentation
+- Documented the new privilege model in CLAUDE.md
+
 ## [1.4.0] - 2026-06-16
 
 ### Changed

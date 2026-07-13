@@ -247,7 +247,7 @@ async function summaryBox(totals, opts) {
   out('\n');
   out('  ' + t.paint.agedGreen(t.box.bl + t.box.h.repeat(inner) + t.box.br) + '\n');
   out('\n  ' + verdictLine(totals, mode, dryRun) + '\n');
-  if (mode !== 'remove') out('\n  ' + t.dim('Undo anytime:  ') + 'sudo bypass-vpn --remove' + '\n');
+  if (mode !== 'remove') out('\n  ' + t.dim('Undo anytime:  ') + 'bypass-vpn --remove' + '\n');
   out('\n');
 }
 
@@ -325,7 +325,7 @@ function renderStatic(data, opts) {
   out('  ' + v + countersContent(totals.routed, totals.skipped, totals.failed, inner) + v + '\n');
   out('  ' + t.paint.agedGreen(t.box.bl + t.box.h.repeat(inner) + t.box.br) + '\n');
   out('\n  ' + verdictLine(totals, mode, dryRun) + '\n');
-  if (mode !== 'remove') out('\n  ' + t.dim('Undo anytime:  ') + 'sudo bypass-vpn --remove' + '\n');
+  if (mode !== 'remove') out('\n  ' + t.dim('Undo anytime:  ') + 'bypass-vpn --remove' + '\n');
   out('\n');
 }
 

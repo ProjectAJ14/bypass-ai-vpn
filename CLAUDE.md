@@ -9,11 +9,18 @@ A zero-dependency Node.js CLI tool that routes AI service traffic through the Wi
 ## Running Locally
 
 ```bash
-node bin/bypass-vpn.js --help      # test help output
-node bin/bypass-vpn.js --list      # test service listing
-node bin/bypass-vpn.js --dry-run   # test full flow without modifying routes
-sudo node bin/bypass-vpn.js        # actual route modification (macOS)
+node bin/bypass-vpn.js --help              # test help output
+node bin/bypass-vpn.js --list              # test service listing
+node bin/bypass-vpn.js --dry-run           # test full flow without modifying routes
+node bin/bypass-vpn.js --install-sudoers   # one-time: enable passwordless route (macOS)
+node bin/bypass-vpn.js                      # actual route modification (no sudo, after setup)
 ```
+
+**Privileges (macOS):** the tool runs as a normal user and elevates **only** the
+`route` command via `sudo -n /sbin/route …`. A one-time `--install-sudoers` writes
+a `NOPASSWD: /sbin/route` rule to `/etc/sudoers.d/bypass-vpn`, so no password is
+asked on subsequent runs. `--uninstall-sudoers` removes it. On Windows the whole
+process must be launched from an elevated prompt (no per-command elevation).
 
 No build step, no test framework, no linter configured. There are no `npm scripts`.
 
@@ -31,10 +38,10 @@ The CLI entry point (`bin/bypass-vpn.js`) orchestrates five modules:
 
 ```
 bin/bypass-vpn.js  (arg parsing → orchestration → summary)
-  ├─ platform.js   → getPlatform(), ensureAdmin()
+  ├─ platform.js   → getPlatform(), ensurePrivileges(), installSudoers(), uninstallSudoers()
   ├─ gateway.js    → detect() — macOS: netstat/networksetup, Windows: PowerShell/ipconfig
   ├─ resolver.js   → resolveOne()/resolveAll() — async execFile(dig/nslookup) + Node DNS fallback, ~4s timeout
-  ├─ router.js     → addRoute(), removeRoute() — async execFile with IP validation
+  ├─ router.js     → addRoute(), removeRoute() — async execFile w/ IP validation; macOS elevates route via `sudo -n /sbin/route`
   ├─ services.js   → static domain registry (Claude, ChatGPT, Firebase, Google Auth, Atlassian)
   ├─ config.js     → loadConfig(), addDomain(), removeDomain() — persists custom domains in ~/.bypass-vpn.json
   ├─ theme.js      → look-and-feel: palette, glyphs, spinner frames, box chars, gradient, bundled ANSI Shadow font, ANSI/width helpers

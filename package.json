@@ -1,6 +1,6 @@
 {
   "name": "bypass-vpn",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Route AI service traffic (Claude, ChatGPT, Firebase) through Wi-Fi gateway to bypass VPN",
   "bin": {
     "bypass-vpn": "bin/bypass-vpn.js"

@@ -2,7 +2,7 @@
 
 const { renderLive } = require('../src/ui');
 const { c, ansi } = require('../src/theme');
-const { ensureAdmin } = require('../src/platform');
+const { ensurePrivileges, installSudoers, uninstallSudoers } = require('../src/platform');
 const { detect } = require('../src/gateway');
 const { resolveOne } = require('../src/resolver');
 const { addRoute, removeRoute } = require('../src/router');
@@ -23,6 +23,8 @@ const flags = {
   slow: args.includes('--slow'),
   noAnim: args.includes('--no-anim'),
   noBanner: args.includes('--no-banner'),
+  installSudoers: args.includes('--install-sudoers'),
+  uninstallSudoers: args.includes('--uninstall-sudoers'),
   services: [],
   addDomain: null,
   removeDomain: null,
@@ -54,14 +56,21 @@ if (flags.help) {
   Route AI service traffic through Wi-Fi gateway to bypass VPN.
 
   ${c.bold('Usage:')}
-    ${c.cyan('sudo')} bypass-vpn              Add routes (macOS)
-    bypass-vpn                    Add routes (Windows, elevated)
+    bypass-vpn                    Add routes
     bypass-vpn ${c.dim('--remove')}          Remove previously added routes
     bypass-vpn ${c.dim('--dry-run')}         Show commands without executing
     bypass-vpn ${c.dim('--service claude')}  Route specific service(s) only
     bypass-vpn ${c.dim('--list')}            List available services
     bypass-vpn ${c.dim('--add-domain')} h    Save a custom domain for routing
     bypass-vpn ${c.dim('--remove-domain')} h Remove a saved custom domain
+
+  ${c.bold('First-time setup (macOS):')}
+    bypass-vpn ${c.dim('--install-sudoers')}   Run once so bypass-vpn never asks for a
+                                password again (adds a passwordless rule for the
+                                ${c.dim('route')} command only). Asks for your password once.
+    bypass-vpn ${c.dim('--uninstall-sudoers')} Undo the above.
+
+  ${c.dim('On Windows, run from an elevated Command Prompt or PowerShell instead.')}
 
   ${c.bold('Flags:')}
     -h, --help              Show this help
@@ -72,6 +81,8 @@ if (flags.help) {
         --list              List services and their domains
         --add-domain <host> Save a custom domain (persisted in ~/.bypass-vpn.json)
         --remove-domain <h> Remove a saved custom domain
+        --install-sudoers   Enable passwordless runs (macOS, one-time)
+        --uninstall-sudoers Remove the passwordless rule (macOS)
         --fast              Faster animation
         --slow              Slower, more cinematic animation
         --no-anim           Skip animation, print final frames instantly
@@ -80,11 +91,11 @@ if (flags.help) {
   ${c.bold('Services:')} claude, chatgpt, firebase, googleauth, atlassian
 
   ${c.bold('Examples:')}
-    sudo npx bypass-vpn
-    sudo bypass-vpn --service claude --service chatgpt
+    bypass-vpn --install-sudoers   ${c.dim('# once')}
+    bypass-vpn
+    bypass-vpn --service claude --service chatgpt
     bypass-vpn --add-domain mycompany.atlassian.net
-    sudo bypass-vpn
-    sudo bypass-vpn --remove
+    bypass-vpn --remove
 `);
   process.exit(0);
 }
@@ -142,8 +153,18 @@ if (flags.list) {
 // ── Main ───────────────────────────────────────────────────────
 
 async function main() {
+  // One-time setup commands — handle before anything else.
+  if (flags.installSudoers) {
+    await installSudoers();
+    return;
+  }
+  if (flags.uninstallSudoers) {
+    await uninstallSudoers();
+    return;
+  }
+
   if (!flags.dryRun) {
-    ensureAdmin();
+    await ensurePrivileges();
   }
 
   // Detect gateway (real work — bail early with a plain message if missing)
