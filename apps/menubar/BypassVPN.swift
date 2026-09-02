@@ -34,15 +34,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showMenu() {
         let menu = NSMenu()
-        menu.addItem(withTitle: "Add Routes", action: #selector(menuAdd), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Apply (Add Routes)", action: #selector(menuAdd), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Remove Routes", action: #selector(menuRemove), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Open Log", action: #selector(openLog), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        statusItem.menu = menu
-        statusItem.button?.performClick(nil) // pops the menu
-        statusItem.menu = nil                // detach so left-click stays an action
+        // popUp under the button — reliable, and leaves left-click as the Apply action.
+        guard let button = statusItem.button else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
     }
 
     @objc func menuAdd() { run(remove: false) }
