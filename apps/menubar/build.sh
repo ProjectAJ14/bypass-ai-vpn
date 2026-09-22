@@ -19,7 +19,8 @@ cp "$HERE/Info.plist" "$APP/Contents/Info.plist"
 TMP="$(mktemp -t BypassVPN).swift"
 trap 'rm -f "$TMP"' EXIT
 sed "s|__SCRIPT_PATH__|$SCRIPT|" "$HERE/BypassVPN.swift" > "$TMP"
-swiftc -O "$TMP" -o "$APP/Contents/MacOS/BypassVPN"
+# Pin deployment target to match Info.plist LSMinimumSystemVersion; swiftc's default can exceed the host OS.
+swiftc -O -target "$(uname -m)-apple-macos11.0" "$TMP" -o "$APP/Contents/MacOS/BypassVPN"
 
 echo "Built $APP"
 echo
