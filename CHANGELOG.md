@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0] - 2026-09-29
+
+### Added
+- `--json` flag — prints a single-line machine-readable result (`ok`, `mode`, `gateway`, per-service `ok`/`skip`/`fail` counts) instead of the animated UI; exits non-zero on any failed route. Used by the menu-bar app
+- macOS menu-bar app 2.0 (`apps/menubar`, built from source — not part of the npm package):
+  - Auto-runs when the network changes: a new Wi-Fi gateway or a VPN connecting (utun/ipsec/ppp with IPv4), debounced 3s and deduplicated by a `gateway|vpn` signature
+  - SwiftUI popover panel with gateway, VPN status, per-service results, Apply/Remove, auto-run and launch-at-login toggles, and the app version
+  - New app icon, shield-state menu-bar glyphs, notifications on auto-runs
+
+### Fixed
+- `--help` services list is now derived from the service registry, so it includes every service (wisprflow, npm were missing)
+
 ## [1.5.2] - 2026-07-13
 
 ### Documentation

@@ -1,6 +1,8 @@
 import SwiftUI
 
 // The popover shown when the menu-bar icon is clicked. All state lives in Model.
+let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+
 struct PanelView: View {
     @ObservedObject var model: Model
 
@@ -17,6 +19,9 @@ struct PanelView: View {
                 set: { model.setLaunchAtLogin($0) }))
             Divider()
             footer
+            Text("Bypass VPN v\(appVersion)")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity)
         }
         .toggleStyle(.switch)
         .controlSize(.small)
