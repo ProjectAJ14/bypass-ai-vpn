@@ -90,7 +90,7 @@ if (flags.help) {
         --no-banner         Skip the ASCII banner
         --json              Print a machine-readable result (used by the menu-bar app)
 
-  ${c.bold('Services:')} claude, chatgpt, firebase, googleauth, atlassian
+  ${c.bold('Services:')} ${Object.keys(services).join(', ')}
 
   ${c.bold('Examples:')}
     bypass-vpn --install-sudoers   ${c.dim('# once')}
