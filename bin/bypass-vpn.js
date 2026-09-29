@@ -23,6 +23,7 @@ const flags = {
   slow: args.includes('--slow'),
   noAnim: args.includes('--no-anim'),
   noBanner: args.includes('--no-banner'),
+  json: args.includes('--json'),
   installSudoers: args.includes('--install-sudoers'),
   uninstallSudoers: args.includes('--uninstall-sudoers'),
   services: [],
@@ -87,6 +88,7 @@ if (flags.help) {
         --slow              Slower, more cinematic animation
         --no-anim           Skip animation, print final frames instantly
         --no-banner         Skip the ASCII banner
+        --json              Print a machine-readable result (used by the menu-bar app)
 
   ${c.bold('Services:')} claude, chatgpt, firebase, googleauth, atlassian
 
@@ -170,6 +172,10 @@ async function main() {
   // Detect gateway (real work — bail early with a plain message if missing)
   const gateway = detect();
   if (!gateway) {
+    if (flags.json) {
+      console.log(JSON.stringify({ ok: false, error: 'No Wi-Fi gateway found' }));
+      process.exit(1);
+    }
     process.stdout.write('\n  ' + c.red('✖ No Wi-Fi gateway found — connect to Wi-Fi first.') + '\n\n');
     process.exit(1);
   }
@@ -255,6 +261,23 @@ async function main() {
     }
     await Promise.all(tasks);
   };
+
+  if (flags.json) {
+    await work();
+    const failed = dataServices.flatMap((s) => s.hosts).filter((h) => h.status === 'fail').length;
+    console.log(JSON.stringify({
+      ok: failed === 0,
+      mode: flags.remove ? 'remove' : 'add',
+      gateway,
+      services: dataServices.map((s) => ({
+        name: s.name,
+        ok: s.hosts.filter((h) => h.status === 'ok').length,
+        skip: s.hosts.filter((h) => h.status === 'skip').length,
+        fail: s.hosts.filter((h) => h.status === 'fail').length,
+      })),
+    }));
+    process.exit(failed === 0 ? 0 : 1);
+  }
 
   await renderLive(
     { version, gateway, services: dataServices },

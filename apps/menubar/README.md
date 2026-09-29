@@ -1,8 +1,8 @@
 # BypassVPN menu-bar app (macOS)
 
-A tiny native menu-bar launcher for the `bypass-vpn` CLI. Click the icon and it
-re-routes AI traffic through your Wi-Fi gateway — handy after switching Wi-Fi
-while on the VPN.
+A native menu-bar app for the `bypass-vpn` CLI. It re-routes AI traffic through
+your Wi-Fi gateway automatically whenever you join a new Wi-Fi network or
+connect to a VPN.
 
 ## Build
 
@@ -22,25 +22,41 @@ Run once so routing never asks for a password:
 node bin/bypass-vpn.js --install-sudoers
 ```
 
-## Use
+## Install
 
 ```bash
-open apps/menubar/BypassVPN.app   # first launch: right-click → Open (Gatekeeper)
+bash apps/menubar/install.sh   # builds, copies to /Applications, launches
 ```
 
-- **Left-click** the menu-bar icon → add routes.
-- **Right-click** → menu: Add Routes / Remove Routes / Open Log / Quit.
-- While running, the icon shows a braille spinner. When done it flips to a green
-  ✓ or red ✗ for a few seconds; hover for the last-run detail.
-- Every run appends to `~/Library/Logs/bypass-vpn.log` (timestamp, mode, exit
-  code, full output). **Open Log** opens it in Console — check here for errors.
+Then open the panel and switch on **Launch at login**. Requires macOS 13+.
 
-Drag `BypassVPN.app` to `/Applications` and add it to **System Settings → General
-→ Login Items** to keep it always available.
+## Use
+
+It runs by itself:
+
+- **Automatic:** re-routes whenever the network changes, meaning a new Wi-Fi
+  gateway or a VPN connecting or disconnecting. Changes are debounced by 3s,
+  and a run only happens when the `gateway|vpn` state actually changed.
+  Auto-runs post a notification. Turn this off in the panel with
+  **Auto-run on network change**.
+- **Click** the menu-bar icon to open the panel. It shows the Wi-Fi gateway,
+  whether a VPN is up, per-service results from the last run, **Apply** /
+  **Remove**, the toggles, **Log** and **Quit**.
+- Icon states:
+  - shield: no VPN
+  - ⚡ shield: VPN detected
+  - spinner: running
+  - ✓ shield: done
+  - ! shield: failed (stays until the next good run)
+- The last run is written to `~/Library/Logs/bypass-vpn.log`.
+
+VPN detection means a `utun`/`ipsec`/`ppp` interface with an IPv4 address.
+macOS keeps several IPv6-only `utun`s for iCloud, and those are ignored.
 
 ## Notes
 
-- Feedback uses the CLI exit code plus an output scan. A hard failure (no Wi-Fi
-  gateway, error) shows red reliably; the scan also flags per-host route
-  failures, which the CLI does not surface via exit code.
-- Re-run `build.sh` if you move the repo — the CLI path is absolute and baked in.
+- The app runs the CLI with `--json` and reads the last line of its output.
+  Anything that isn't JSON, such as a missing sudoers rule or node not being
+  found, is shown as the error.
+- Re-run `build.sh` if you move the repo. The CLI path is absolute and baked in.
+- To change the app icon, replace `icon.png` (1024px master) and rebuild.
